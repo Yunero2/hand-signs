@@ -3,7 +3,8 @@ import * as handPoseDetection from '@tensorflow-models/hand-pose-detection'
 import * as tf from '@tensorflow/tfjs'
 import '@tensorflow/tfjs-backend-webgl'
 
-// Hand connections for 21 landmarks (MediaPipe ordering)
+// Hand connections for the 21 MediaPipe landmarks.
+// These are used to draw the skeleton lines on the canvas.
 const CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,4], // Thumb
   [0,5],[5,6],[6,7],[7,8], // Index
@@ -19,24 +20,20 @@ function euclid(a, b) {
   return Math.hypot(dx, dy)
 }
 
-// Simple heuristic sign detection. Returns {name, confidence}
-// Heuristic gesture detection helper.
-// Accepts `landmarks` array (21 points) where each point is {x,y[,z]} in pixel coordinates.
-// Returns an object { name, confidence } with confidence 0-100.
+// Basic gesture scoring for this demo. It is intentionally simple.
+// The function returns one of a few sign names and a confidence value.
 export function detectHandSign(landmarks) {
   if (!landmarks || landmarks.length < 21) return { name: 'Unknown', confidence: 0 }
 
-  // Compute bounding box and use its size to normalize distances so heuristics work across sizes.
-  const xs = landmarks.map(p => p.x)
-  const ys = landmarks.map(p => p.y)
-  const w = Math.max(...xs) - Math.min(...xs)
-  const h = Math.max(...ys) - Math.min(...ys)
-  const handSize = Math.max(w, h) || 1
+  const xs = landmarks.map(point => point.x)
+  const ys = landmarks.map(point => point.y)
+  const width = Math.max(...xs) - Math.min(...xs)
+  const height = Math.max(...ys) - Math.min(...ys)
+  const handSize = Math.max(width, height) || 1
   const wrist = landmarks[0]
 
-  // fingertip indices
   const tips = { thumb: 4, index: 8, middle: 12, ring: 16, pinky: 20 }
-  const tipDists = {
+  const tipDistances = {
     thumb: euclid(landmarks[tips.thumb], wrist),
     index: euclid(landmarks[tips.index], wrist),
     middle: euclid(landmarks[tips.middle], wrist),
@@ -44,25 +41,39 @@ export function detectHandSign(landmarks) {
     pinky: euclid(landmarks[tips.pinky], wrist)
   }
 
-  // normalize distances by hand size
-  const nd = Object.fromEntries(Object.entries(tipDists).map(([k, v]) => [k, v / handSize]))
+  const normalized = Object.fromEntries(
+    Object.entries(tipDistances).map(([key, value]) => [key, value / handSize])
+  )
 
-  // Tunable thresholds
-  const extendedThresh = 0.30 // fingertip far from wrist => extended
-  const curledThresh = 0.18 // fingertip near wrist => curled
+  const extendedThresh = 0.30
+  const curledThresh = 0.18
 
-  const extended = Object.fromEntries(Object.entries(nd).map(([k, v]) => [k, v > extendedThresh]))
-  const curled = Object.fromEntries(Object.entries(nd).map(([k, v]) => [k, v < curledThresh]))
+  const extended = Object.fromEntries(
+    Object.entries(normalized).map(([key, value]) => [key, value > extendedThresh])
+  )
+  const curled = Object.fromEntries(
+    Object.entries(normalized).map(([key, value]) => [key, value < curledThresh])
+  )
 
-  // Scores
-  const openScore = ['thumb', 'index', 'middle', 'ring', 'pinky'].reduce((s, k) => s + (extended[k] ? 1 : 0), 0)
+  const openScore = ['thumb', 'index', 'middle', 'ring', 'pinky'].reduce(
+    (score, finger) => score + (extended[finger] ? 1 : 0),
+    0
+  )
   const openConfidence = openScore / 5
 
-  const victoryScore = (extended.index ? 1 : 0) + (extended.middle ? 1 : 0) + (curled.ring ? 1 : 0) + (curled.pinky ? 1 : 0)
+  const victoryScore =
+    (extended.index ? 1 : 0) +
+    (extended.middle ? 1 : 0) +
+    (curled.ring ? 1 : 0) +
+    (curled.pinky ? 1 : 0)
   const victoryConfidence = victoryScore / 4
 
-  if (openConfidence > 0.75) return { name: 'Open Palm', confidence: Math.round(openConfidence * 100) }
-  if (victoryConfidence > 0.7) return { name: 'Victory', confidence: Math.round(victoryConfidence * 100) }
+  if (openConfidence > 0.75) {
+    return { name: 'Open Palm', confidence: Math.round(openConfidence * 100) }
+  }
+  if (victoryConfidence > 0.7) {
+    return { name: 'Victory', confidence: Math.round(victoryConfidence * 100) }
+  }
 
   return { name: 'Unknown', confidence: Math.round(Math.max(openConfidence, victoryConfidence) * 100) }
 }
