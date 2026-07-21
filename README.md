@@ -4,8 +4,9 @@ A hands-on React demo using Vite and Tailwind that runs in the browser and uses 
 
 ## What this does
 - Shows a live camera preview with hand landmark overlay
-- Detects simple gestures with a lightweight heuristic
-- Marks the target gesture as `Shadow Clone`
+- Detects a broader set of gestures using lightweight heuristics
+- Recognizes signs such as Open Palm, Victory, Fist, Thumbs Up, Thumbs Down, OK Sign, Rock, Call Me, Pistol, and Three Fingers
+- Supports two-hand combos like Shadow Clone, Double Thumbs Up, Twin Fist, Call Me Duo, and High Five
 - Displays status cards for current sign, confidence, FPS, and match state
 
 ## Run it locally

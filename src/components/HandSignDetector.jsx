@@ -20,8 +20,10 @@ function euclid(a, b) {
   return Math.hypot(dx, dy)
 }
 
-// Basic gesture scoring for this demo. It is intentionally simple.
-// The function returns one of a few sign names and a confidence value.
+function avg(values) {
+  return values.reduce((sum, x) => sum + x, 0) / values.length
+}
+
 export function detectHandSign(landmarks) {
   if (!landmarks || landmarks.length < 21) return { name: 'Unknown', confidence: 0 }
 
@@ -47,6 +49,7 @@ export function detectHandSign(landmarks) {
 
   const extendedThresh = 0.30
   const curledThresh = 0.18
+  const closeThreshold = 0.14
 
   const extended = Object.fromEntries(
     Object.entries(normalized).map(([key, value]) => [key, value > extendedThresh])
@@ -55,27 +58,66 @@ export function detectHandSign(landmarks) {
     Object.entries(normalized).map(([key, value]) => [key, value < curledThresh])
   )
 
-  const openScore = ['thumb', 'index', 'middle', 'ring', 'pinky'].reduce(
+  const thumbIndexDist = euclid(landmarks[tips.thumb], landmarks[tips.index]) / handSize
+  const thumbMiddleDist = euclid(landmarks[tips.thumb], landmarks[tips.middle]) / handSize
+  const indexMiddleDist = euclid(landmarks[tips.index], landmarks[tips.middle]) / handSize
+
+  const allExtended = ['thumb','index','middle','ring','pinky'].every(f => extended[f])
+  const allCurled = ['thumb','index','middle','ring','pinky'].every(f => curled[f])
+  const fingersCurled = ['index','middle','ring','pinky'].every(f => curled[f])
+  const fingersExtended = ['index','middle','ring','pinky'].every(f => extended[f])
+
+  const isThumbsUp = extended.thumb && fingersCurled && landmarks[tips.thumb].y < wrist.y
+  const isThumbsDown = extended.thumb && fingersCurled && landmarks[tips.thumb].y > wrist.y
+  const isOk = thumbIndexDist < closeThreshold && extended.thumb && extended.index && extended.middle
+  const isRock = extended.index && !extended.middle && !extended.ring && extended.pinky
+  const isCallMe = extended.thumb && !extended.index && !extended.middle && !extended.ring && extended.pinky
+  const isPistol = extended.thumb && extended.index && !extended.middle && !extended.ring && !extended.pinky
+  const isVictory = extended.index && extended.middle && !extended.ring && !extended.pinky
+  const isThree = extended.index && extended.middle && extended.ring && !extended.pinky
+
+  const scores = {
+    'Open Palm': allExtended ? 1 : 0,
+    'Fist': allCurled ? 1 : 0,
+    'Victory': isVictory ? 1 : 0,
+    'Thumbs Up': isThumbsUp ? 1 : 0,
+    'Thumbs Down': isThumbsDown ? 1 : 0,
+    'OK Sign': isOk ? 1 : 0,
+    'Rock': isRock ? 1 : 0,
+    'Call Me': isCallMe ? 1 : 0,
+    'Pistol': isPistol ? 1 : 0,
+    'Three Fingers': isThree ? 1 : 0
+  }
+
+  const detectedSigns = Object.entries(scores)
+    .filter(([, score]) => score > 0)
+    .map(([name]) => name)
+
+  if (detectedSigns.length > 0) {
+    const sign = detectedSigns[0]
+    const confidence = Math.round((scores[sign] * 100) / 1)
+    return { name: sign, confidence }
+  }
+
+  const openScore = ['thumb','index','middle','ring','pinky'].reduce(
     (score, finger) => score + (extended[finger] ? 1 : 0),
     0
   )
   const openConfidence = openScore / 5
-
   const victoryScore =
     (extended.index ? 1 : 0) +
     (extended.middle ? 1 : 0) +
     (curled.ring ? 1 : 0) +
     (curled.pinky ? 1 : 0)
   const victoryConfidence = victoryScore / 4
+  const bestConfidence = Math.max(openConfidence, victoryConfidence)
 
-  if (openConfidence > 0.75) {
-    return { name: 'Open Palm', confidence: Math.round(openConfidence * 100) }
-  }
-  if (victoryConfidence > 0.7) {
-    return { name: 'Victory', confidence: Math.round(victoryConfidence * 100) }
+  if (bestConfidence > 0.5) {
+    const label = openConfidence > victoryConfidence ? 'Open Palm' : 'Victory'
+    return { name: label, confidence: Math.round(bestConfidence * 100) }
   }
 
-  return { name: 'Unknown', confidence: Math.round(Math.max(openConfidence, victoryConfidence) * 100) }
+  return { name: 'Unknown', confidence: 0 }
 }
 
 export default function HandSignDetector({ targetSign = null, maxHands = 2 }) {
@@ -177,10 +219,28 @@ export default function HandSignDetector({ targetSign = null, maxHands = 2 }) {
         }
 
         let final = { name: 'None', confidence: 0 }
-        if (signNames.length === 2 && signNames[0].name === 'Victory' && signNames[1].name === 'Victory') {
-          final = { name: 'Shadow Clone', confidence: Math.round((signNames[0].confidence + signNames[1].confidence) / 2) }
-        } else if (signNames.length >= 1) {
-          final = signNames.reduce((best, cur) => cur.confidence > best.confidence ? cur : best, { name: 'None', confidence: 0 })
+        if (signNames.length === 2) {
+          const first = signNames[0]
+          const second = signNames[1]
+          const bothSame = first.name === second.name
+
+          if (first.name === 'Victory' && second.name === 'Victory') {
+            final = { name: 'Shadow Clone', confidence: Math.round((first.confidence + second.confidence) / 2) }
+          } else if (first.name === 'Thumbs Up' && second.name === 'Thumbs Up') {
+            final = { name: 'Double Thumbs Up', confidence: Math.round((first.confidence + second.confidence) / 2) }
+          } else if (first.name === 'Fist' && second.name === 'Fist') {
+            final = { name: 'Twin Fist', confidence: Math.round((first.confidence + second.confidence) / 2) }
+          } else if (first.name === 'Call Me' && second.name === 'Call Me') {
+            final = { name: 'Call Me Duo', confidence: Math.round((first.confidence + second.confidence) / 2) }
+          } else if (first.name === 'Open Palm' && second.name === 'Open Palm') {
+            final = { name: 'High Five', confidence: Math.round((first.confidence + second.confidence) / 2) }
+          } else if (bothSame) {
+            final = { name: `${first.name} Pair`, confidence: Math.round((first.confidence + second.confidence) / 2) }
+          } else {
+            final = signNames.reduce((best, cur) => cur.confidence > best.confidence ? cur : best, { name: 'None', confidence: 0 })
+          }
+        } else if (signNames.length === 1) {
+          final = signNames[0]
         }
 
         if (final.name !== detectedRef.current.name || final.confidence !== detectedRef.current.confidence) {
